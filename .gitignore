@@ -1,0 +1,23 @@
+# Maven
+target/
+*.class
+
+# Log and data files
+*.log
+*.index
+*.timeindex
+pulse-data/
+data/
+
+# IDE / Editor
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

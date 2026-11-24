@@ -31,6 +31,8 @@ public final class PulseCodec {
             case OFFSET_FETCH -> OffsetFetchRequest.readFrom(header, in);
             case JOIN_GROUP -> JoinGroupRequest.readFrom(header, in);
             case HEARTBEAT -> HeartbeatRequest.readFrom(header, in);
+            case CREATE_TOPICS -> CreateTopicsRequest.readFrom(header, in);
+            case DELETE_TOPICS -> DeleteTopicsRequest.readFrom(header, in);
             default -> throw new UnsupportedOperationException("Unsupported Request ApiKey: " + header.apiKey());
         };
     }
@@ -57,6 +59,8 @@ public final class PulseCodec {
             case OFFSET_FETCH -> OffsetFetchResponse.readFrom(header, in);
             case JOIN_GROUP -> JoinGroupResponse.readFrom(header, in);
             case HEARTBEAT -> HeartbeatResponse.readFrom(header, in);
+            case CREATE_TOPICS -> CreateTopicsResponse.readFrom(header, in);
+            case DELETE_TOPICS -> DeleteTopicsResponse.readFrom(header, in);
             default -> throw new UnsupportedOperationException("Unsupported Response ApiKey: " + apiKey);
         };
     }

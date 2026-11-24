@@ -31,8 +31,11 @@ class RaftNodeTest {
 
         node = new RaftNode(1, Collections.emptyMap(), stateMachine);
 
-        // Allow election timer to trigger (single node should elect itself immediately)
-        Thread.sleep(400);
+        // Wait for election timer to trigger (single node should elect itself immediately)
+        long deadline = System.currentTimeMillis() + 3000;
+        while (node.role() != RaftRole.LEADER && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+        }
 
         assertThat(node.role()).isEqualTo(RaftRole.LEADER);
         assertThat(node.currentLeaderId()).isEqualTo(1);

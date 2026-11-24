@@ -58,7 +58,11 @@ public class RaftNode implements Closeable {
             return t;
         });
 
-        startElectionTimer();
+        if (peers.isEmpty()) {
+            startElection();
+        } else {
+            startElectionTimer();
+        }
     }
 
     public int nodeId() { return nodeId; }
@@ -95,14 +99,17 @@ public class RaftNode implements Closeable {
         }
     }
 
+    private long electionTimeoutMs = 150;
+
     private void resetElectionTimeout() {
         lastHeartbeatReceived = System.currentTimeMillis();
+        electionTimeoutMs = 150 + random.nextInt(150);
     }
 
     private void startElectionTimer() {
-        int timeoutMs = 150 + random.nextInt(150);
+        resetElectionTimeout();
         electionTimeoutTask = scheduler.scheduleAtFixedRate(this::checkElectionTimeout,
-                timeoutMs, timeoutMs, TimeUnit.MILLISECONDS);
+                50, 50, TimeUnit.MILLISECONDS);
     }
 
     private void checkElectionTimeout() {
@@ -111,8 +118,7 @@ public class RaftNode implements Closeable {
             if (!running || role == RaftRole.LEADER) return;
 
             long elapsed = System.currentTimeMillis() - lastHeartbeatReceived;
-            int timeoutMs = 200 + random.nextInt(200);
-            if (elapsed >= timeoutMs) {
+            if (elapsed >= electionTimeoutMs) {
                 startElection();
             }
         } finally {
@@ -134,9 +140,9 @@ public class RaftNode implements Closeable {
         log.info("Node {} starting election for term {}", nodeId, term);
 
         int votesNeeded = (peers.size() + 1) / 2 + 1;
-        int votesGranted = 1; // Vote for self
+        java.util.concurrent.atomic.AtomicInteger votesGranted = new java.util.concurrent.atomic.AtomicInteger(1); // Vote for self
 
-        if (peers.isEmpty()) {
+        if (peers.isEmpty() || votesNeeded <= 1) {
             becomeLeader();
             return;
         }
@@ -157,10 +163,9 @@ public class RaftNode implements Closeable {
                     }
 
                     if (reply.voteGranted()) {
-                        int votes = 1;
-                        // Count granted votes among peers
-                        // In single node or simple quorum check
-                        becomeLeader();
+                        if (votesGranted.incrementAndGet() >= votesNeeded && role == RaftRole.CANDIDATE) {
+                            becomeLeader();
+                        }
                     }
                 } finally {
                     lock.unlock();
@@ -189,6 +194,7 @@ public class RaftNode implements Closeable {
     }
 
     private void becomeFollower(long term, int leaderId) {
+        log.info("Node {} became FOLLOWER for term {}, leaderId={}", nodeId, term, leaderId);
         role = RaftRole.FOLLOWER;
         currentTerm = term;
         votedFor = -1;
@@ -251,9 +257,24 @@ public class RaftNode implements Closeable {
     }
 
     private void checkAndUpdateCommitIndex() {
-        long medianIndex = getLastLogIndex();
-        if (medianIndex > commitIndex && getEntryTerm(medianIndex) == currentTerm) {
-            commitIndex = medianIndex;
+        if (peers.isEmpty()) {
+            long medianIndex = getLastLogIndex();
+            if (medianIndex > commitIndex && getEntryTerm(medianIndex) == currentTerm) {
+                commitIndex = medianIndex;
+                applyEntries();
+            }
+            return;
+        }
+
+        List<Long> matches = new ArrayList<>();
+        matches.add(getLastLogIndex());
+        for (RaftPeer peer : peers.values()) {
+            matches.add(matchIndex.getOrDefault(peer.peerId(), 0L));
+        }
+        Collections.sort(matches);
+        long quorumIndex = matches.get((matches.size() - 1) / 2);
+        if (quorumIndex > commitIndex && getEntryTerm(quorumIndex) == currentTerm) {
+            commitIndex = quorumIndex;
             applyEntries();
         }
     }
@@ -389,6 +410,52 @@ public class RaftNode implements Closeable {
     private long getEntryTerm(long index) {
         if (index <= 0 || index >= raftLog.size()) return 0;
         return raftLog.get((int) index).term();
+    }
+
+    public void addPeer(int peerId, RaftPeer peer) {
+        lock.lock();
+        try {
+            peers.put(peerId, peer);
+            if (role == RaftRole.LEADER) {
+                nextIndex.put(peerId, getLastLogIndex() + 1);
+                matchIndex.put(peerId, 0L);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void removePeer(int peerId) {
+        lock.lock();
+        try {
+            peers.remove(peerId);
+            nextIndex.remove(peerId);
+            matchIndex.remove(peerId);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public Map<Integer, RaftPeer> peers() {
+        lock.lock();
+        try {
+            return Collections.unmodifiableMap(new HashMap<>(peers));
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public RaftStateMachine stateMachine() {
+        return stateMachine;
+    }
+
+    public void becomeLeaderForTest() {
+        lock.lock();
+        try {
+            becomeLeader();
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override

@@ -12,7 +12,9 @@ public enum ApiKeys {
     JOIN_GROUP((short) 5, "JoinGroup"),
     SYNC_GROUP((short) 6, "SyncGroup"),
     HEARTBEAT((short) 7, "Heartbeat"),
-    LEAVE_GROUP((short) 8, "LeaveGroup");
+    LEAVE_GROUP((short) 8, "LeaveGroup"),
+    CREATE_TOPICS((short) 9, "CreateTopics"),
+    DELETE_TOPICS((short) 10, "DeleteTopics");
 
     private final short id;
     private final String name;

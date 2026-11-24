@@ -70,4 +70,37 @@ class PulseProtocolTest {
         assertThat(mDecoded.topicMetadata()).hasSize(1);
         assertThat(mDecoded.topicMetadata().get(0).topic()).isEqualTo("orders");
     }
+
+    @Test
+    void testCreateTopicsRoundTrip() {
+        RequestHeader header = new RequestHeader(ApiKeys.CREATE_TOPICS, (short) 1, 101, "admin-cli");
+        CreateTopicsRequest req = new CreateTopicsRequest(
+                header,
+                Map.of("payments", new CreateTopicsRequest.TopicDetails(3, (short) 2)),
+                5000
+        );
+
+        ByteBuf buf = Unpooled.buffer();
+        PulseCodec.encodeRequest(req, buf);
+        int len = buf.readInt();
+        assertThat(len).isEqualTo(buf.readableBytes());
+
+        PulseRequest decoded = PulseCodec.decodeRequest(buf);
+        assertThat(decoded).isInstanceOf(CreateTopicsRequest.class);
+        CreateTopicsRequest cReq = (CreateTopicsRequest) decoded;
+        assertThat(cReq.topics()).containsKey("payments");
+        assertThat(cReq.topics().get("payments").numPartitions()).isEqualTo(3);
+        assertThat(cReq.topics().get("payments").replicationFactor()).isEqualTo((short) 2);
+
+        ResponseHeader rHeader = new ResponseHeader(101);
+        CreateTopicsResponse resp = new CreateTopicsResponse(rHeader, Map.of("payments", ErrorCode.NONE));
+        ByteBuf respBuf = Unpooled.buffer();
+        PulseCodec.encodeResponse(resp, respBuf);
+        int respLen = respBuf.readInt();
+        assertThat(respLen).isEqualTo(respBuf.readableBytes());
+
+        PulseResponse decodedResp = PulseCodec.decodeResponse(respBuf, ApiKeys.CREATE_TOPICS);
+        assertThat(decodedResp).isInstanceOf(CreateTopicsResponse.class);
+        assertThat(((CreateTopicsResponse) decodedResp).results().get("payments")).isEqualTo(ErrorCode.NONE);
+    }
 }

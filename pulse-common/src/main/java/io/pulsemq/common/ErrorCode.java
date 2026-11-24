@@ -18,7 +18,9 @@ public enum ErrorCode {
     INCONSISTENT_GROUP_PROTOCOL((short) 11, "Protocol type or name inconsistent in group"),
     INVALID_TOPIC_EXCEPTION((short) 12, "Topic name violates naming convention or is reserved"),
     MESSAGE_TOO_LARGE((short) 13, "Batch or record exceeds configured maximum size"),
-    LEADER_NOT_AVAILABLE((short) 14, "Partition leader is not currently available");
+    LEADER_NOT_AVAILABLE((short) 14, "Partition leader is not currently available"),
+    TOPIC_ALREADY_EXISTS((short) 15, "Topic with this name already exists in cluster"),
+    INVALID_REPLICATION_FACTOR((short) 16, "Replication factor is invalid or exceeds available brokers");
 
     private final short code;
     private final String description;

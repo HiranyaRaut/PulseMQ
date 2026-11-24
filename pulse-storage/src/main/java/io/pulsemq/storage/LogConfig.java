@@ -12,8 +12,16 @@ public record LogConfig(
         long retentionMs,
         long retentionBytes,
         long flushIntervalMessages,
-        long flushIntervalMs
+        long flushIntervalMs,
+        CleanupPolicy cleanupPolicy,
+        long deleteRetentionMs
 ) {
+    public enum CleanupPolicy {
+        DELETE,
+        COMPACT,
+        COMPACT_DELETE
+    }
+
     public static final int DEFAULT_MAX_SEGMENT_BYTES = 1024 * 1024 * 1024; // 1 GB
     public static final int DEFAULT_INDEX_INTERVAL_BYTES = 4096; // 4 KB
     public static final int DEFAULT_MAX_INDEX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB preallocated
@@ -21,6 +29,8 @@ public record LogConfig(
     public static final long DEFAULT_RETENTION_BYTES = -1L; // unlimited
     public static final long DEFAULT_FLUSH_INTERVAL_MESSAGES = 100_000L;
     public static final long DEFAULT_FLUSH_INTERVAL_MS = 1000L;
+    public static final CleanupPolicy DEFAULT_CLEANUP_POLICY = CleanupPolicy.DELETE;
+    public static final long DEFAULT_DELETE_RETENTION_MS = Duration.ofDays(1).toMillis();
 
     public static LogConfig defaultConfiguration() {
         return new LogConfig(
@@ -30,7 +40,9 @@ public record LogConfig(
                 DEFAULT_RETENTION_MS,
                 DEFAULT_RETENTION_BYTES,
                 DEFAULT_FLUSH_INTERVAL_MESSAGES,
-                DEFAULT_FLUSH_INTERVAL_MS
+                DEFAULT_FLUSH_INTERVAL_MS,
+                DEFAULT_CLEANUP_POLICY,
+                DEFAULT_DELETE_RETENTION_MS
         );
     }
 
@@ -46,6 +58,8 @@ public record LogConfig(
         private long retentionBytes = DEFAULT_RETENTION_BYTES;
         private long flushIntervalMessages = DEFAULT_FLUSH_INTERVAL_MESSAGES;
         private long flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS;
+        private CleanupPolicy cleanupPolicy = DEFAULT_CLEANUP_POLICY;
+        private long deleteRetentionMs = DEFAULT_DELETE_RETENTION_MS;
 
         public Builder maxSegmentBytes(int maxSegmentBytes) {
             this.maxSegmentBytes = maxSegmentBytes;
@@ -82,6 +96,16 @@ public record LogConfig(
             return this;
         }
 
+        public Builder cleanupPolicy(CleanupPolicy cleanupPolicy) {
+            this.cleanupPolicy = cleanupPolicy;
+            return this;
+        }
+
+        public Builder deleteRetentionMs(long deleteRetentionMs) {
+            this.deleteRetentionMs = deleteRetentionMs;
+            return this;
+        }
+
         public LogConfig build() {
             return new LogConfig(
                     maxSegmentBytes,
@@ -90,7 +114,9 @@ public record LogConfig(
                     retentionMs,
                     retentionBytes,
                     flushIntervalMessages,
-                    flushIntervalMs
+                    flushIntervalMs,
+                    cleanupPolicy,
+                    deleteRetentionMs
             );
         }
     }

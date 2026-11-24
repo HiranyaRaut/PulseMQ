@@ -52,7 +52,6 @@
         <dependency>
             <groupId>io.pulse-mq</groupId>
             <artifactId>pulse-client</artifactId>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

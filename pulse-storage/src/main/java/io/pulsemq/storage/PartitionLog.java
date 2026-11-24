@@ -281,6 +281,40 @@ public class PartitionLog implements Closeable {
         return Collections.unmodifiableList(new ArrayList<>(segments.values()));
     }
 
+    public LogSegment activeSegment() {
+        return activeSegment;
+    }
+
+    public LogConfig config() {
+        return config;
+    }
+
+    /**
+     * Atomically replaces old segments with newly cleaned segments.
+     */
+    public void replaceSegments(List<Long> oldBaseOffsets, List<LogSegment> newSegments) {
+        rwLock.writeLock().lock();
+        try {
+            ensureOpen();
+            for (Long baseOff : oldBaseOffsets) {
+                LogSegment oldSeg = segments.remove(baseOff);
+                if (oldSeg != null) {
+                    oldSeg.delete();
+                }
+            }
+
+            for (LogSegment newSeg : newSegments) {
+                segments.put(newSeg.baseOffset(), newSeg);
+            }
+
+            if (!segments.isEmpty()) {
+                logStartOffset = segments.firstKey();
+            }
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
+
     @Override
     public void close() {
         rwLock.writeLock().lock();

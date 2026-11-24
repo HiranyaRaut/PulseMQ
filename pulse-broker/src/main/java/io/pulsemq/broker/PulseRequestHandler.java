@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -34,54 +35,59 @@ public class PulseRequestHandler {
         // Dispatch to lightweight Java 21 virtual thread
         virtualThreadExecutor.submit(() -> {
             try {
-                PulseResponse response = processRequest(request);
-                if (response != null) {
-                    ctx.writeAndFlush(response);
-                }
+                CompletableFuture<PulseResponse> future = processRequestAsync(request);
+                future.thenAccept(response -> {
+                    if (response != null && ctx.channel().isActive()) {
+                        ctx.writeAndFlush(response);
+                    }
+                }).exceptionally(ex -> {
+                    log.error("Error processing request: {}", request.header(), ex);
+                    return null;
+                });
             } catch (Throwable t) {
-                log.error("Unhandled error processing request: {}", request.header(), t);
+                log.error("Unhandled error submitting request: {}", request.header(), t);
             }
         });
     }
 
-    private PulseResponse processRequest(PulseRequest request) {
+    private CompletableFuture<PulseResponse> processRequestAsync(PulseRequest request) {
         RequestHeader header = request.header();
 
         return switch (header.apiKey()) {
             case PRODUCE -> {
                 ProduceRequest produce = (ProduceRequest) request;
-                var results = replicaManager.appendRecords(produce.acks(), produce.partitionData());
                 if (produce.acks() == 0) {
-                    // acks=0 does not expect a response
-                    yield null;
+                    replicaManager.appendRecordsAsync(produce.acks(), produce.partitionData());
+                    yield CompletableFuture.completedFuture(null);
                 }
-                yield new ProduceResponse(new ResponseHeader(header.correlationId()), results);
+                yield replicaManager.appendRecordsAsync(produce.acks(), produce.partitionData())
+                        .thenApply(results -> new ProduceResponse(new ResponseHeader(header.correlationId()), results));
             }
             case FETCH -> {
                 FetchRequest fetch = (FetchRequest) request;
                 var results = replicaManager.readRecords(
-                        fetch.maxWaitMs(), fetch.minBytes(), fetch.maxBytes(), fetch.partitionData());
-                yield new FetchResponse(new ResponseHeader(header.correlationId()), results);
+                        header, fetch.maxWaitMs(), fetch.minBytes(), fetch.maxBytes(), fetch.partitionData());
+                yield CompletableFuture.completedFuture(new FetchResponse(new ResponseHeader(header.correlationId()), results));
             }
             case METADATA -> {
                 MetadataRequest meta = (MetadataRequest) request;
-                yield handleMetadata(meta);
+                yield CompletableFuture.completedFuture(handleMetadata(meta));
             }
             case JOIN_GROUP -> {
                 JoinGroupRequest join = (JoinGroupRequest) request;
-                yield groupCoordinator.handleJoinGroup(join);
+                yield CompletableFuture.completedFuture(groupCoordinator.handleJoinGroup(join));
             }
             case HEARTBEAT -> {
                 HeartbeatRequest hb = (HeartbeatRequest) request;
-                yield groupCoordinator.handleHeartbeat(hb);
+                yield CompletableFuture.completedFuture(groupCoordinator.handleHeartbeat(hb));
             }
             case OFFSET_COMMIT -> {
                 OffsetCommitRequest oc = (OffsetCommitRequest) request;
-                yield groupCoordinator.handleOffsetCommit(oc);
+                yield CompletableFuture.completedFuture(groupCoordinator.handleOffsetCommit(oc));
             }
             case OFFSET_FETCH -> {
                 OffsetFetchRequest of = (OffsetFetchRequest) request;
-                yield groupCoordinator.handleOffsetFetch(of);
+                yield CompletableFuture.completedFuture(groupCoordinator.handleOffsetFetch(of));
             }
             default -> throw new UnsupportedOperationException("Unsupported ApiKey: " + header.apiKey());
         };
@@ -101,7 +107,6 @@ public class PulseRequestHandler {
         Set<String> requestedTopics = new HashSet<>(request.topics());
         boolean all = requestedTopics.isEmpty();
 
-        // If requested topics don't exist yet, auto-create them if default partitions configured
         for (String topic : requestedTopics) {
             TopicPartition tp = new TopicPartition(topic, 0);
             replicaManager.getOrCreatePartition(tp);

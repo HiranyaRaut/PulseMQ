@@ -14,18 +14,25 @@ PulseMQ is designed with a zero-dependency core leveraging modern Java 21 featur
   - Topics are partitioned into immutable log segments (`.log`) indexed by sparse offset indexes (`.index`) and time indexes (`.timeindex`).
   - Sparse index binary search achieves $O(\log N)$ file offset resolution without caching entire indexes in JVM heap.
   - Zero-copy data transmission directly from disk to network sockets using OS `sendfile` / Java NIO `FileChannel.transferTo()`.
+  - **Log Compaction (`LogCleaner`)**: Key-based deduplication retaining only the latest value for each key and pruning tombstones.
 - **Custom Binary Network Protocol (`pulse-protocol`)**:
   - Length-prefixed binary framing via Netty, minimizing overhead and payload inflation.
   - Native support for `PRODUCE`, `FETCH`, `METADATA`, `JOIN_GROUP`, `HEARTBEAT`, `OFFSET_COMMIT`, and `OFFSET_FETCH`.
 - **Asynchronous Execution via Java 21 Virtual Threads (`pulse-broker`)**:
   - Non-blocking network multiplexing with request handlers executing on lightweight virtual threads (`Executors.newVirtualThreadPerTaskExecutor()`).
+- **Distributed Replication & In-Sync Replicas (`pulse-broker`)**:
+  - Active inter-broker replication loop (`ReplicaFetcherManager`) streaming records from partition leaders.
+  - Dynamic In-Sync Replica (ISR) expansion and shrink monitoring.
+  - High Watermark (HW) synchronization and configurable producer acknowledgments (`acks=0`, `acks=1`, `acks=all`).
 - **Dynamic Consumer Groups & Rebalancing (`pulse-broker`)**:
   - Server-side group coordinator tracking heartbeats and membership.
   - Durable offset persistence backed by internal committed logs (`__consumer_offsets`).
 - **Embedded Raft Consensus (`pulse-consensus`)**:
   - KRaft-style embedded consensus engine managing leader election, metadata log replication, and quorum commits.
-- **Client SDKs (`pulse-client`)**:
-  - Asynchronous, non-blocking `PulseProducer` and `PulseConsumer` APIs.
+- **High-Throughput Client SDKs (`pulse-client`)**:
+  - Zero-allocation memory pooling (`BufferPool`) eliminating GC churn.
+  - Client-side micro-batching accumulator (`RecordAccumulator`) batching writes by `batchSize` and `lingerMs`.
+  - Non-blocking, asynchronous `PulseProducer` and `PulseConsumer` APIs.
 
 ---
 
@@ -35,11 +42,11 @@ PulseMQ is designed with a zero-dependency core leveraging modern Java 21 featur
 PulseMQ/
 ├── pom.xml
 ├── pulse-common/      # Record format, RecordBatch, ByteUtils (CRC32C/Varints), ErrorCodes
-├── pulse-storage/     # SparseOffsetIndex, TimeIndex, LogSegment, PartitionLog, LogManager
+├── pulse-storage/     # SparseOffsetIndex, TimeIndex, LogSegment, PartitionLog, LogManager, LogCleaner
 ├── pulse-protocol/    # Binary framing, request/response codecs, Netty server/client handlers
 ├── pulse-consensus/   # Embedded Raft consensus module (RaftNode, RPCs, StateMachine)
-├── pulse-broker/      # PulseServer, PulseRequestHandler, ReplicaManager, GroupCoordinator
-└── pulse-client/      # PulseProducer, PulseConsumer, NetworkClient connection pool
+├── pulse-broker/      # PulseServer, PulseRequestHandler, ReplicaManager, ReplicaFetcherManager, GroupCoordinator
+└── pulse-client/      # PulseProducer, PulseConsumer, BufferPool, RecordAccumulator, NetworkClient
 ```
 
 ---
@@ -57,12 +64,13 @@ mvn clean test
 
 ### Produce & Consume Example
 
-#### 1. Producing Messages
+#### 1. Producing Messages (with Micro-Batching)
 ```java
-try (PulseProducer producer = new PulseProducer("127.0.0.1", 9092, "order-producer", (short) 1)) {
+// Connect with batchSize = 16KB and lingerMs = 5ms
+try (PulseProducer producer = new PulseProducer("127.0.0.1", 9092, "order-producer", (short) -1, 16384, 5)) {
     ProducerRecord record = new ProducerRecord("orders", "order-101", "{ \"amount\": 99.50 }");
     RecordMetadata meta = producer.send(record).get();
-    System.out.println("Message written to offset: " + meta.offset());
+    System.out.println("Message committed to partition at offset: " + meta.offset());
 }
 ```
 

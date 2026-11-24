@@ -25,6 +25,7 @@ public class PulseServer implements Closeable {
     private final BrokerConfig config;
     private final LogManager logManager;
     private final ReplicaManager replicaManager;
+    private final ReplicaFetcherManager replicaFetcherManager;
     private final GroupCoordinator groupCoordinator;
     private final PulseRequestHandler requestHandler;
 
@@ -38,6 +39,7 @@ public class PulseServer implements Closeable {
         this.config = config;
         this.logManager = new LogManager(config.logDir(), LogConfig.defaultConfiguration());
         this.replicaManager = new ReplicaManager(config, logManager);
+        this.replicaFetcherManager = new ReplicaFetcherManager(config, replicaManager);
         this.groupCoordinator = new GroupCoordinator(replicaManager);
         this.requestHandler = new PulseRequestHandler(config, replicaManager, groupCoordinator);
     }
@@ -89,6 +91,10 @@ public class PulseServer implements Closeable {
         return replicaManager;
     }
 
+    public ReplicaFetcherManager replicaFetcherManager() {
+        return replicaFetcherManager;
+    }
+
     public LogManager logManager() {
         return logManager;
     }
@@ -114,6 +120,7 @@ public class PulseServer implements Closeable {
         }
 
         requestHandler.close();
+        replicaFetcherManager.close();
         groupCoordinator.close();
         replicaManager.close();
         logManager.close();

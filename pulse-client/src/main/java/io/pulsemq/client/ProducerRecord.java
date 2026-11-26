@@ -20,4 +20,12 @@ public record ProducerRecord(
     public ProducerRecord(String topic, byte[] value) {
         this(topic, 0, null, value);
     }
+
+    public ProducerRecord(String topic, String key, byte[] value) {
+        this(topic, 0, key == null ? null : key.getBytes(StandardCharsets.UTF_8), value);
+    }
+
+    public ProducerRecord(String topic, int partition, String key, byte[] value) {
+        this(topic, partition, key == null ? null : key.getBytes(StandardCharsets.UTF_8), value);
+    }
 }

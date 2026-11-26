@@ -42,18 +42,18 @@ class RecordAccumulatorTest {
         accum.append(tp, new ProducerRecord("orders", "k2", "v2"), f2, Duration.ofSeconds(1));
 
         // Before linger, not ready unless forced
-        Map<TopicPartition, List<ProducerBatch>> notReady = accum.drain(System.currentTimeMillis(), false);
+        Map<TopicPartition, ProducerBatch> notReady = accum.drain(System.currentTimeMillis(), false);
         assertThat(notReady).isEmpty();
 
         // Forced drain
-        Map<TopicPartition, List<ProducerBatch>> ready = accum.drain(System.currentTimeMillis(), true);
+        Map<TopicPartition, ProducerBatch> ready = accum.drain(System.currentTimeMillis(), true);
         assertThat(ready).containsKey(tp);
-        List<ProducerBatch> batches = ready.get(tp);
-        assertThat(batches).hasSize(1);
-        assertThat(batches.get(0).recordsCount()).isEqualTo(2);
+        ProducerBatch batch = ready.get(tp);
+        assertThat(batch).isNotNull();
+        assertThat(batch.recordsCount()).isEqualTo(2);
 
         // Recycle batch
-        accum.deallocate(batches.get(0));
+        accum.deallocate(batch);
         assertThat(accum.bufferPool().freeBuffersCount()).isEqualTo(1);
     }
 }

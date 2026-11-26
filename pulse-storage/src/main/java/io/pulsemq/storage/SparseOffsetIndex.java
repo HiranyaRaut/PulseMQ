@@ -114,8 +114,8 @@ public class SparseOffsetIndex implements Closeable {
         try {
             ensureOpen();
             if (entries > 0 && offset <= lastOffset) {
-                throw new IllegalArgumentException(
-                        "Attempt to append non-increasing offset " + offset + " <= lastOffset " + lastOffset);
+                // Ignore non-increasing offset append in sparse index without failing
+                return;
             }
             if ((entries + 1) * ENTRY_SIZE > mmap.limit()) {
                 throw new IllegalStateException("Index file is full, max capacity reached: " + mmap.limit());

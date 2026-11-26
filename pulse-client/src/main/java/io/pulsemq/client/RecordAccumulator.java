@@ -44,9 +44,10 @@ public class RecordAccumulator {
 
     /**
      * Drains batches that are ready to be sent (either full, lingered out, or forced).
+     * Drains at most one batch per TopicPartition so that each ProduceRequest carries at most one batch per partition.
      */
-    public Map<TopicPartition, List<ProducerBatch>> drain(long now, boolean force) {
-        Map<TopicPartition, List<ProducerBatch>> ready = new HashMap<>();
+    public Map<TopicPartition, ProducerBatch> drain(long now, boolean force) {
+        Map<TopicPartition, ProducerBatch> ready = new HashMap<>();
 
         for (Map.Entry<TopicPartition, ArrayDeque<ProducerBatch>> entry : batches.entrySet()) {
             TopicPartition tp = entry.getKey();
@@ -57,20 +58,26 @@ public class RecordAccumulator {
                 if (first == null) continue;
 
                 if (force || first.isFull() || first.hasLingerElapsed(lingerMs, now)) {
-                    List<ProducerBatch> list = new ArrayList<>();
-                    while (!deque.isEmpty()) {
-                        ProducerBatch b = deque.pollFirst();
-                        list.add(b);
-                        if (!force && !b.isFull()) break;
-                    }
-                    if (!list.isEmpty()) {
-                        ready.put(tp, list);
+                    ProducerBatch b = deque.pollFirst();
+                    if (b != null) {
+                        ready.put(tp, b);
                     }
                 }
             }
         }
 
         return ready;
+    }
+
+    public boolean hasPending() {
+        for (ArrayDeque<ProducerBatch> deque : batches.values()) {
+            synchronized (deque) {
+                if (!deque.isEmpty()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public void deallocate(ProducerBatch batch) {

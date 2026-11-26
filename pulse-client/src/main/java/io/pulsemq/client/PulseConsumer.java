@@ -60,6 +60,21 @@ public class PulseConsumer implements Closeable {
         } catch (Exception ignored) {}
     }
 
+    public void assign(Collection<TopicPartition> partitions) {
+        for (TopicPartition tp : partitions) {
+            subscriptions.add(tp);
+            consumedOffsets.putIfAbsent(tp, 0L);
+        }
+    }
+
+    public void assign(TopicPartition partition) {
+        assign(List.of(partition));
+    }
+
+    public Set<TopicPartition> assignment() {
+        return Collections.unmodifiableSet(subscriptions);
+    }
+
     public List<ConsumerRecord> poll(Duration timeout) {
         if (subscriptions.isEmpty()) {
             return Collections.emptyList();

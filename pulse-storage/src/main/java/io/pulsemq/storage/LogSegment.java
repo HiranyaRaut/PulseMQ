@@ -133,18 +133,18 @@ public class LogSegment implements Closeable {
                 channel.write(buffer, physicalPos + (bytesToWrite - buffer.remaining()));
             }
 
+            size += bytesToWrite;
+            lastOffset = batch.lastOffset();
+            maxTimestamp = Math.max(maxTimestamp, batch.maxTimestamp());
+
             // Update sparse offset index
-            if (bytesSinceLastIndexEntry >= config.indexIntervalBytes() || size == 0) {
+            if (bytesSinceLastIndexEntry >= config.indexIntervalBytes() || size == bytesToWrite) {
                 offsetIndex.append(batch.baseOffset(), (int) physicalPos);
                 timeIndex.append(batch.maxTimestamp(), batch.baseOffset());
                 bytesSinceLastIndexEntry = 0;
             } else {
                 bytesSinceLastIndexEntry += bytesToWrite;
             }
-
-            size += bytesToWrite;
-            lastOffset = batch.lastOffset();
-            maxTimestamp = Math.max(maxTimestamp, batch.maxTimestamp());
         } finally {
             rwLock.writeLock().unlock();
         }

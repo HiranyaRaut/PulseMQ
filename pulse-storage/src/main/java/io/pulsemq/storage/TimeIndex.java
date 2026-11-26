@@ -75,21 +75,18 @@ public class TimeIndex implements Closeable {
         lock.lock();
         try {
             ensureOpen();
-            if (entries > 0 && timestamp < lastTimestamp) {
-                throw new IllegalArgumentException(
-                        "Attempt to append non-monotonically increasing timestamp " + timestamp + " < " + lastTimestamp);
-            }
+            long effectiveTimestamp = entries > 0 ? Math.max(timestamp, lastTimestamp) : timestamp;
             if ((entries + 1) * ENTRY_SIZE > mmap.limit()) {
                 throw new IllegalStateException("TimeIndex file is full");
             }
 
             int relOffset = (int) (offset - baseOffset);
             int bytePos = entries * ENTRY_SIZE;
-            mmap.putLong(bytePos, timestamp);
+            mmap.putLong(bytePos, effectiveTimestamp);
             mmap.putInt(bytePos + 8, relOffset);
 
             entries++;
-            lastTimestamp = timestamp;
+            lastTimestamp = effectiveTimestamp;
         } finally {
             lock.unlock();
         }

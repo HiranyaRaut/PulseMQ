@@ -116,63 +116,76 @@ public class PulseProducer implements Closeable {
 
     private void sendBatches(boolean force) {
         if (!batchingEnabled) return;
-        Map<TopicPartition, List<ProducerBatch>> ready = accumulator.drain(System.currentTimeMillis(), force);
-        if (ready.isEmpty()) return;
 
-        Map<TopicPartition, RecordBatch> payload = new HashMap<>();
-        List<ProducerBatch> allBatches = new ArrayList<>();
+        do {
+            Map<TopicPartition, ProducerBatch> ready = accumulator.drain(System.currentTimeMillis(), force);
+            if (ready.isEmpty()) break;
 
-        for (Map.Entry<TopicPartition, List<ProducerBatch>> entry : ready.entrySet()) {
-            for (ProducerBatch pb : entry.getValue()) {
-                payload.put(entry.getKey(), pb.complete());
-                allBatches.add(pb);
+            Map<TopicPartition, RecordBatch> payload = new HashMap<>();
+            List<ProducerBatch> batchesInFlight = new ArrayList<>(ready.size());
+
+            for (Map.Entry<TopicPartition, ProducerBatch> entry : ready.entrySet()) {
+                payload.put(entry.getKey(), entry.getValue().complete());
+                batchesInFlight.add(entry.getValue());
             }
-        }
 
-        int correlationId = networkClient.nextCorrelationId();
-        RequestHeader header = new RequestHeader(ApiKeys.PRODUCE, (short) 1, correlationId, clientId);
-        ProduceRequest request = new ProduceRequest(header, acks, 5000, payload);
+            int correlationId = networkClient.nextCorrelationId();
+            RequestHeader header = new RequestHeader(ApiKeys.PRODUCE, (short) 1, correlationId, clientId);
+            ProduceRequest request = new ProduceRequest(header, acks, 5000, payload);
 
-        networkClient.send(request).whenComplete((resp, err) -> {
-            try {
-                if (err != null) {
-                    for (ProducerBatch pb : allBatches) {
-                        for (CompletableFuture<RecordMetadata> f : pb.futures()) {
-                            f.completeExceptionally(err);
+            networkClient.send(request).whenComplete((resp, err) -> {
+                try {
+                    if (err != null) {
+                        for (ProducerBatch pb : batchesInFlight) {
+                            for (CompletableFuture<RecordMetadata> f : pb.futures()) {
+                                f.completeExceptionally(err);
+                            }
+                        }
+                        return;
+                    }
+
+                    ProduceResponse pResp = (ProduceResponse) resp;
+                    for (ProducerBatch pb : batchesInFlight) {
+                        TopicPartition tp = pb.topicPartition();
+                        ProduceResponse.PartitionProduceResult result = pResp.responses().get(tp);
+                        if (result != null && result.errorCode() == ErrorCode.NONE) {
+                            long baseOffset = result.baseOffset();
+                            long ts = result.logAppendTime();
+                            for (int i = 0; i < pb.futures().size(); i++) {
+                                pb.futures().get(i).complete(new RecordMetadata(tp, baseOffset + i, ts));
+                            }
+                        } else {
+                            ErrorCode ec = result != null ? result.errorCode() : ErrorCode.UNKNOWN_SERVER_ERROR;
+                            for (CompletableFuture<RecordMetadata> f : pb.futures()) {
+                                f.completeExceptionally(new RuntimeException("Produce failed with error: " + ec));
+                            }
                         }
                     }
-                    return;
-                }
-
-                ProduceResponse pResp = (ProduceResponse) resp;
-                for (ProducerBatch pb : allBatches) {
-                    TopicPartition tp = pb.topicPartition();
-                    ProduceResponse.PartitionProduceResult result = pResp.responses().get(tp);
-                    if (result != null && result.errorCode() == ErrorCode.NONE) {
-                        long baseOffset = result.baseOffset();
-                        long ts = result.logAppendTime();
-                        for (int i = 0; i < pb.futures().size(); i++) {
-                            pb.futures().get(i).complete(new RecordMetadata(tp, baseOffset + i, ts));
-                        }
-                    } else {
-                        ErrorCode ec = result != null ? result.errorCode() : ErrorCode.UNKNOWN_SERVER_ERROR;
-                        for (CompletableFuture<RecordMetadata> f : pb.futures()) {
-                            f.completeExceptionally(new RuntimeException("Produce failed with error: " + ec));
-                        }
+                } finally {
+                    for (ProducerBatch pb : batchesInFlight) {
+                        accumulator.deallocate(pb);
                     }
                 }
-            } finally {
-                for (ProducerBatch pb : allBatches) {
-                    accumulator.deallocate(pb);
-                }
-            }
-        });
+            });
+        } while (force && accumulator.hasPending());
     }
 
     public void flush() {
         if (batchingEnabled) {
             sendBatches(true);
         }
+    }
+
+    public NetworkClient networkClient() {
+        return networkClient;
+    }
+
+    public RecordAccumulator accumulator() {
+        return accumulator;
+    }
+
+    public boolean isBatchingEnabled() {
+        return batchingEnabled;
     }
 
     @Override

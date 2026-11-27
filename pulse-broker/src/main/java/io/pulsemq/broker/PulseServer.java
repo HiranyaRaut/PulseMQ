@@ -38,6 +38,8 @@ public class PulseServer implements Closeable {
     private final RaftNode raftNode;
     private final ClusterMetadataController metadataController;
     private final PulseRequestHandler requestHandler;
+    private final io.pulsemq.broker.metrics.BrokerMetrics metrics;
+    private final io.pulsemq.broker.metrics.PrometheusMetricsServer metricsServer;
 
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
@@ -59,7 +61,18 @@ public class PulseServer implements Closeable {
         this.raftNode = new RaftNode(config.brokerId(), raftPeers, stateMachine);
         this.metadataController = new ClusterMetadataController(raftNode, stateMachine);
         this.stateMachine.addListener(this::onMetadataChanged);
-        this.requestHandler = new PulseRequestHandler(config, replicaManager, groupCoordinator, metadataController);
+
+        this.metrics = new io.pulsemq.broker.metrics.BrokerMetrics(
+                new io.pulsemq.broker.metrics.MetricsRegistry(),
+                logManager,
+                groupCoordinator,
+                stateMachine,
+                raftNode,
+                config.brokerId()
+        );
+        this.metricsServer = config.metricsEnabled() ?
+                new io.pulsemq.broker.metrics.PrometheusMetricsServer(config.host(), config.metricsPort(), metrics) : null;
+        this.requestHandler = new PulseRequestHandler(config, replicaManager, groupCoordinator, metadataController, metrics);
     }
 
     private void onMetadataChanged(MetadataImage newImage) {
@@ -102,7 +115,7 @@ public class PulseServer implements Closeable {
                     protected void initChannel(SocketChannel ch) {
                         ch.pipeline().addLast("frameDecoder", new PulseFrameDecoder());
                         ch.pipeline().addLast("codec", new PulseServerCodec());
-                        ch.pipeline().addLast("handler", new PulseBrokerHandler(requestHandler));
+                        ch.pipeline().addLast("handler", new PulseBrokerHandler(requestHandler, metrics));
                     }
                 });
 
@@ -111,6 +124,14 @@ public class PulseServer implements Closeable {
         InetSocketAddress localAddr = (InetSocketAddress) serverChannel.localAddress();
         boundPort = localAddr.getPort();
         running = true;
+
+        if (metricsServer != null) {
+            try {
+                metricsServer.start();
+            } catch (Exception e) {
+                log.error("Failed to start Prometheus metrics server", e);
+            }
+        }
 
         if (metadataController.isActiveController()) {
             try {
@@ -160,12 +181,28 @@ public class PulseServer implements Closeable {
         return stateMachine;
     }
 
+    public io.pulsemq.broker.metrics.BrokerMetrics metrics() {
+        return metrics;
+    }
+
+    public io.pulsemq.broker.metrics.PrometheusMetricsServer metricsServer() {
+        return metricsServer;
+    }
+
+    public int metricsPort() {
+        return metricsServer != null ? metricsServer.boundPort() : -1;
+    }
+
     @Override
     public synchronized void close() {
         if (!running) return;
         running = false;
 
         log.info("Stopping PulseMQ Broker [{}]...", config.brokerId());
+
+        if (metricsServer != null) {
+            metricsServer.close();
+        }
 
         if (serverChannel != null) {
             try {

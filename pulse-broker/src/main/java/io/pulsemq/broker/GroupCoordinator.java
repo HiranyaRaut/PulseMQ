@@ -43,6 +43,8 @@ public class GroupCoordinator implements Closeable {
         public int generationId() { return generationId; }
         public String leaderId() { return leaderId; }
         public GroupState state() { return state; }
+        public Map<TopicPartition, Long> committedOffsets() { return Collections.unmodifiableMap(committedOffsets); }
+        public Map<String, Long> members() { return Collections.unmodifiableMap(members); }
     }
 
     private final Map<String, GroupMetadata> groups = new ConcurrentHashMap<>();
@@ -50,6 +52,10 @@ public class GroupCoordinator implements Closeable {
 
     public GroupCoordinator(ReplicaManager replicaManager) {
         this.replicaManager = replicaManager;
+    }
+
+    public Map<String, GroupMetadata> groups() {
+        return Collections.unmodifiableMap(groups);
     }
 
     public JoinGroupResponse handleJoinGroup(JoinGroupRequest request) {

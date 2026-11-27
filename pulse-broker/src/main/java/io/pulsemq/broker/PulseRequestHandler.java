@@ -2,6 +2,7 @@ package io.pulsemq.broker;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.pulsemq.common.ErrorCode;
+import io.pulsemq.common.RecordBatch;
 import io.pulsemq.common.TopicPartition;
 import io.pulsemq.protocol.*;
 import org.slf4j.Logger;
@@ -23,10 +24,11 @@ public class PulseRequestHandler {
     private final ReplicaManager replicaManager;
     private final GroupCoordinator groupCoordinator;
     private final io.pulsemq.consensus.ClusterMetadataController metadataController;
+    private final io.pulsemq.broker.metrics.BrokerMetrics metrics;
     private final ExecutorService virtualThreadExecutor;
 
     public PulseRequestHandler(BrokerConfig config, ReplicaManager replicaManager, GroupCoordinator groupCoordinator) {
-        this(config, replicaManager, groupCoordinator, null);
+        this(config, replicaManager, groupCoordinator, null, null);
     }
 
     public PulseRequestHandler(
@@ -35,10 +37,21 @@ public class PulseRequestHandler {
             GroupCoordinator groupCoordinator,
             io.pulsemq.consensus.ClusterMetadataController metadataController
     ) {
+        this(config, replicaManager, groupCoordinator, metadataController, null);
+    }
+
+    public PulseRequestHandler(
+            BrokerConfig config,
+            ReplicaManager replicaManager,
+            GroupCoordinator groupCoordinator,
+            io.pulsemq.consensus.ClusterMetadataController metadataController,
+            io.pulsemq.broker.metrics.BrokerMetrics metrics
+    ) {
         this.config = config;
         this.replicaManager = replicaManager;
         this.groupCoordinator = groupCoordinator;
         this.metadataController = metadataController;
+        this.metrics = metrics;
         this.virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -67,6 +80,14 @@ public class PulseRequestHandler {
         return switch (header.apiKey()) {
             case PRODUCE -> {
                 ProduceRequest produce = (ProduceRequest) request;
+                if (metrics != null) {
+                    metrics.recordProduceRequest();
+                    if (produce.partitionData() != null) {
+                        for (Map.Entry<TopicPartition, RecordBatch> entry : produce.partitionData().entrySet()) {
+                            metrics.recordMessageIn(entry.getKey().topic(), entry.getValue().recordsCount(), entry.getValue().sizeInBytes());
+                        }
+                    }
+                }
                 if (produce.acks() == 0) {
                     replicaManager.appendRecordsAsync(produce.acks(), produce.partitionData());
                     yield CompletableFuture.completedFuture(null);
@@ -76,8 +97,19 @@ public class PulseRequestHandler {
             }
             case FETCH -> {
                 FetchRequest fetch = (FetchRequest) request;
+                if (metrics != null) {
+                    metrics.recordFetchRequest();
+                }
                 var results = replicaManager.readRecords(
                         header, fetch.maxWaitMs(), fetch.minBytes(), fetch.maxBytes(), fetch.partitionData());
+                if (metrics != null) {
+                    for (Map.Entry<TopicPartition, FetchResponse.PartitionFetchResult> entry : results.entrySet()) {
+                        byte[] data = entry.getValue().recordsData();
+                        if (data != null && data.length > 0) {
+                            metrics.recordMessageOut(entry.getKey().topic(), 0, data.length);
+                        }
+                    }
+                }
                 yield CompletableFuture.completedFuture(new FetchResponse(new ResponseHeader(header.correlationId()), results));
             }
             case METADATA -> {

@@ -129,11 +129,16 @@ public class PulseConsumer implements Closeable {
     }
 
     public void commitSync() {
-        if (consumedOffsets.isEmpty()) return;
+        commitSync(this.consumedOffsets);
+    }
+
+    public void commitSync(Map<TopicPartition, Long> offsets) {
+        if (offsets == null || offsets.isEmpty()) return;
 
         Map<TopicPartition, OffsetCommitRequest.PartitionCommitData> commitMap = new HashMap<>();
-        for (Map.Entry<TopicPartition, Long> entry : consumedOffsets.entrySet()) {
+        for (Map.Entry<TopicPartition, Long> entry : offsets.entrySet()) {
             commitMap.put(entry.getKey(), new OffsetCommitRequest.PartitionCommitData(entry.getValue(), ""));
+            consumedOffsets.put(entry.getKey(), entry.getValue());
         }
 
         int correlationId = networkClient.nextCorrelationId();

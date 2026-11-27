@@ -139,7 +139,7 @@ public class ReplicaManager implements Closeable {
         );
     }
 
-    private void checkIsrExpirations() {
+    public void checkIsrExpirations() {
         for (PartitionState state : partitions.values()) {
             if (state.isLeader(config.brokerId())) {
                 state.checkIsrExpiration(config.replicaLagTimeMaxMs());

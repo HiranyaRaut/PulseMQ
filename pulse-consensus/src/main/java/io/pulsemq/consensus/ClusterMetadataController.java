@@ -21,6 +21,7 @@ public class ClusterMetadataController implements Closeable {
     private final RaftNode raftNode;
     private final ClusterMetadataStateMachine stateMachine;
     private final long brokerHeartbeatTimeoutMs;
+    private final long controllerStartTime = System.currentTimeMillis();
 
     private final Map<Integer, Long> brokerHeartbeats = new ConcurrentHashMap<>();
     private final AtomicInteger partitionAssignmentCounter = new AtomicInteger(0);
@@ -92,6 +93,11 @@ public class ClusterMetadataController implements Closeable {
         }
         Long last = brokerHeartbeats.get(brokerId);
         if (last == null) {
+            // Heartbeat grace window for registered unfenced brokers after controller startup / failover
+            if (System.currentTimeMillis() - controllerStartTime <= brokerHeartbeatTimeoutMs) {
+                MetadataImage.BrokerRegistration reg = stateMachine.currentImage().brokers().get(brokerId);
+                return reg != null && !reg.fenced();
+            }
             return false;
         }
         return (System.currentTimeMillis() - last) <= brokerHeartbeatTimeoutMs;

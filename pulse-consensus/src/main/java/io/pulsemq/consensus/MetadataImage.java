@@ -37,6 +37,10 @@ public record MetadataImage(
         return new MetadataImage(Collections.emptyMap(), Collections.emptyMap());
     }
 
+    public TopicImage getTopic(String topic) {
+        return topics.get(topic);
+    }
+
     public PartitionImage getPartition(TopicPartition tp) {
         TopicImage ti = topics.get(tp.topic());
         if (ti == null) return null;

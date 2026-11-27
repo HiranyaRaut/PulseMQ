@@ -36,7 +36,7 @@ public class TimeIndex implements Closeable {
     public TimeIndex(File file, long baseOffset, int maxIndexSizeBytes) throws Exception {
         this.file = file;
         this.baseOffset = baseOffset;
-        this.maxIndexSizeBytes = Math.max(ENTRY_SIZE, maxIndexSizeBytes);
+        this.maxIndexSizeBytes = Math.max(ENTRY_SIZE, (maxIndexSizeBytes / ENTRY_SIZE) * ENTRY_SIZE);
 
         boolean newlyCreated = !file.exists();
         this.raf = new RandomAccessFile(file, "rw");
@@ -49,7 +49,9 @@ public class TimeIndex implements Closeable {
             long length = file.length();
             if (length % ENTRY_SIZE != 0) {
                 length = (length / ENTRY_SIZE) * ENTRY_SIZE;
-                raf.setLength(length);
+                try {
+                    raf.setLength(length);
+                } catch (Exception ignored) {}
             }
             this.entries = (int) (length / ENTRY_SIZE);
         }

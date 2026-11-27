@@ -33,7 +33,7 @@ public class SparseOffsetIndex implements Closeable {
             Field f = Unsafe.class.getDeclaredField("theUnsafe");
             f.setAccessible(true);
             unsafe = (Unsafe) f.get(null);
-            invokeCleaner = unsafe.getClass().getMethod("invokeCleaner", ByteBuffer.class);
+            invokeCleaner = Unsafe.class.getMethod("invokeCleaner", ByteBuffer.class);
         } catch (Throwable t) {
             log.warn("Unable to obtain Unsafe.invokeCleaner for direct buffer cleanup", t);
         }
@@ -56,7 +56,7 @@ public class SparseOffsetIndex implements Closeable {
     public SparseOffsetIndex(File file, long baseOffset, int maxIndexSizeBytes) throws Exception {
         this.file = file;
         this.baseOffset = baseOffset;
-        this.maxIndexSizeBytes = Math.max(ENTRY_SIZE, maxIndexSizeBytes);
+        this.maxIndexSizeBytes = Math.max(ENTRY_SIZE, (maxIndexSizeBytes / ENTRY_SIZE) * ENTRY_SIZE);
         this.lastOffset = baseOffset;
 
         boolean newlyCreated = !file.exists();
@@ -70,7 +70,9 @@ public class SparseOffsetIndex implements Closeable {
             long length = file.length();
             if (length % ENTRY_SIZE != 0) {
                 length = (length / ENTRY_SIZE) * ENTRY_SIZE;
-                raf.setLength(length);
+                try {
+                    raf.setLength(length);
+                } catch (Exception ignored) {}
             }
             this.entries = (int) (length / ENTRY_SIZE);
         }
